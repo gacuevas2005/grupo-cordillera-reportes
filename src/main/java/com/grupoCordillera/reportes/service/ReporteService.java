@@ -2,6 +2,7 @@ package com.grupoCordillera.reportes.service;
 
 import com.grupoCordillera.reportes.client.KpiClient;
 import com.grupoCordillera.reportes.client.VentaClient;
+import com.grupoCordillera.reportes.dto.KpiDefinicionDto;
 import com.grupoCordillera.reportes.dto.KpiMetricaDto;
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
 import com.grupoCordillera.reportes.dto.VentaResponseDto;
@@ -20,16 +21,17 @@ public class ReporteService {
     private KpiClient kpiClient;
 
     public ReporteCumplimientoDto generarReporteDeCumplimiento(Long kpiId, Long sucursalId) {
-        // 1. Obtener los datos del KPI (La Meta)
-        List<KpiMetricaDto> metricas = kpiClient.listarMetricas(kpiId);
 
-        // Asumimos que tomamos la primera métrica para el ejemplo
-        KpiMetricaDto kpiActual = metricas.stream().findFirst()
-                .orElseThrow(() -> new RuntimeException("KPI no encontrado"));
+        // 1. Obtener la meta directamente (sin listas)
+        KpiDefinicionDto kpiActual = kpiClient.obtenerDefinicion(kpiId);
 
-        Double meta = kpiActual.getDefinicion().getValorObjetivo(); // Ej: 1,000,000 CLP
+        if (kpiActual == null || kpiActual.getValorObjetivo() == null) {
+            throw new RuntimeException("KPI no encontrado o sin meta definida");
+        }
 
-        // 2. Obtener las ventas y filtrar por la sucursal que nos interesa
+        Double meta = kpiActual.getValorObjetivo(); // Los 5.000.000
+
+        // 2. Obtener las ventas y filtrar por sucursal
         List<VentaResponseDto> todasLasVentas = ventaClient.listarTodasLasVentas();
 
         Double ventasReales = todasLasVentas.stream()
@@ -40,7 +42,6 @@ public class ReporteService {
         // 3. Calcular el cumplimiento
         Double porcentaje = (ventasReales / meta) * 100;
 
-        // 4. Determinar el estado para el semáforo del Dashboard
         String estado;
         if (porcentaje >= 100) {
             estado = "SUPERADO";
@@ -50,12 +51,12 @@ public class ReporteService {
             estado = "CRÍTICO";
         }
 
-        // 5. Armar y retornar el informe
+        // 4. Armar el informe
         ReporteCumplimientoDto reporte = new ReporteCumplimientoDto();
-        reporte.setNombreKpi(kpiActual.getDefinicion().getNombre());
+        reporte.setNombreKpi(kpiActual.getNombre());
         reporte.setMetaEstablecida(meta);
         reporte.setVentasReales(ventasReales);
-        reporte.setPorcentajeCumplimiento(Math.round(porcentaje * 100.0) / 100.0); // Redondear a 2 decimales
+        reporte.setPorcentajeCumplimiento(Math.round(porcentaje * 100.0) / 100.0);
         reporte.setEstado(estado);
 
         return reporte;
