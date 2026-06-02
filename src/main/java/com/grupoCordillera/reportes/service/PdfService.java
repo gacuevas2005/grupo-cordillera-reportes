@@ -1,18 +1,30 @@
 package com.grupoCordillera.reportes.service;
 
 
+ // Ajusta tu paquete si es distinto
+
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
 import com.grupoCordillera.reportes.dto.VentaDetalleDto;
 import com.lowagie.text.*;
+import com.lowagie.text.Font;
+import com.lowagie.text.Image;
+import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.labels.PieSectionLabelGenerator;
+import org.jfree.chart.labels.StandardPieSectionLabelGenerator;
+import org.jfree.chart.plot.PiePlot;
+import org.jfree.data.general.DefaultPieDataset;
 import org.springframework.stereotype.Service;
 
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.text.NumberFormat;
 import java.util.Locale;
-import com.lowagie.text.pdf.PdfPTable;
-import com.lowagie.text.pdf.PdfPCell;
-import java.awt.Color;
 import java.util.Map;
 
 @Service
@@ -26,37 +38,37 @@ public class PdfService {
             PdfWriter.getInstance(document, out);
             document.open();
 
-            // 1. Configuramos el formato de moneda para Chile (CLP)
             NumberFormat formatoMoneda = NumberFormat.getCurrencyInstance(new Locale("es", "CL"));
 
-            // 2. Título
+            // --- TÍTULO ---
             Font fontTitulo = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18);
             Paragraph titulo = new Paragraph("Reporte de Cumplimiento - Grupo Cordillera", fontTitulo);
             titulo.setAlignment(Element.ALIGN_CENTER);
             document.add(titulo);
             document.add(Chunk.NEWLINE);
 
-            // 3. Contenido (Usando el formateador)
+            // --- CABECERA DE DATOS ---
             Font fontTexto = FontFactory.getFont(FontFactory.HELVETICA, 12);
             document.add(new Paragraph("KPI Analizado: " + reporte.getNombreKpi(), fontTexto));
-
-            // Aquí aplicamos el formato a la meta y a las ventas
             document.add(new Paragraph("Meta Establecida: " + formatoMoneda.format(reporte.getMetaEstablecida()), fontTexto));
-            document.add(new Paragraph("Ventas Reales: " + formatoMoneda.format(reporte.getVentasReales()), fontTexto));
+            document.add(new Paragraph("Ventas Reales Totales: " + formatoMoneda.format(reporte.getVentasReales()), fontTexto));
 
-            // 4. Destacar el estado final
             Font fontEstado = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14);
             document.add(Chunk.NEWLINE);
             document.add(new Paragraph("ESTADO ACTUAL: " + reporte.getEstado() +
                     " (" + reporte.getPorcentajeCumplimiento() + "%)", fontEstado));
             document.add(Chunk.NEWLINE);
-            document.add(new Paragraph("Resumen por Sucursales", fontEstado));
+
+            // --- GENERAR E INSERTAR EL GRÁFICO DE TORTA ---
+            Image graficoPdf = crearGraficoTorta(reporte.getTotalesPorSucursal());
+            document.add(graficoPdf);
             document.add(Chunk.NEWLINE);
 
             // --- TABLA 1: Resumen por Sucursal ---
-            PdfPTable tablaSucursales = new PdfPTable(2); // 2 columnas
+            document.add(new Paragraph("Resumen de Ventas por Sucursal", fontEstado));
+            document.add(Chunk.NEWLINE);
+            PdfPTable tablaSucursales = new PdfPTable(2);
             tablaSucursales.setWidthPercentage(100);
-
             tablaSucursales.addCell(new PdfPCell(new Phrase("Sucursal", fontTexto)));
             tablaSucursales.addCell(new PdfPCell(new Phrase("Total Vendido", fontTexto)));
 
@@ -65,16 +77,14 @@ public class PdfService {
                 tablaSucursales.addCell(formatoMoneda.format(entry.getValue()));
             }
             document.add(tablaSucursales);
-
-            document.add(Chunk.NEWLINE);
-            document.add(new Paragraph("Detalle de Transacciones", fontEstado));
             document.add(Chunk.NEWLINE);
 
             // --- TABLA 2: Detalle de Productos Vendidos ---
-            PdfPTable tablaDetalles = new PdfPTable(5); // 5 columnas
+            document.add(new Paragraph("Detalle de Transacciones", fontEstado));
+            document.add(Chunk.NEWLINE);
+            PdfPTable tablaDetalles = new PdfPTable(5);
             tablaDetalles.setWidthPercentage(100);
 
-            // Cabeceras
             String[] cabeceras = {"ID Prod.", "Producto", "Sucursal", "Cant.", "Subtotal"};
             for (String cabecera : cabeceras) {
                 PdfPCell celda = new PdfPCell(new Phrase(cabecera, fontTexto));
@@ -82,7 +92,6 @@ public class PdfService {
                 tablaDetalles.addCell(celda);
             }
 
-            // Filas con datos
             for (VentaDetalleDto detalle : reporte.getDetalleVentas()) {
                 tablaDetalles.addCell(String.valueOf(detalle.getProductoId()));
                 tablaDetalles.addCell(detalle.getProductoNombre());
@@ -93,11 +102,46 @@ public class PdfService {
             document.add(tablaDetalles);
 
             document.close();
-        } catch (DocumentException e) {
-            throw new RuntimeException("Error al generar el PDF", e);
+        } catch (Exception e) {
+            throw new RuntimeException("Error al generar el PDF con gráfico", e);
         }
 
         return out.toByteArray();
+    }
 
+    // --- MÉTODO MAGICO PARA DIBUJAR EL GRÁFICO ---
+    private Image crearGraficoTorta(Map<String, Double> totales) throws Exception {
+        // 1. Llenar los datos
+        DefaultPieDataset dataset = new DefaultPieDataset();
+        for (Map.Entry<String, Double> entry : totales.entrySet()) {
+            dataset.setValue(entry.getKey(), entry.getValue());
+        }
+
+        // 2. Crear el gráfico visualmente
+        JFreeChart chart = ChartFactory.createPieChart(
+                "Porcentaje de Ventas por Sucursal", // Título
+                dataset,
+                true, // Mostrar leyenda
+                true,
+                false
+        );
+
+        // 3. Formatear para que muestre el porcentaje en las etiquetas
+        PiePlot plot = (PiePlot) chart.getPlot();
+        plot.setBackgroundPaint(Color.WHITE); // Fondo blanco limpio
+        plot.setOutlineVisible(false); // Quitar bordes feos
+
+        // Esto hace que la etiqueta diga "Melipilla = 25%"
+        PieSectionLabelGenerator labelGenerator = new StandardPieSectionLabelGenerator("{0} = {2}");
+        plot.setLabelGenerator(labelGenerator);
+
+        // 4. Transformar el gráfico de Java a una Imagen para el PDF
+        BufferedImage bufferedImage = chart.createBufferedImage(500, 300);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(bufferedImage, "png", baos);
+        Image imagenPdf = Image.getInstance(baos.toByteArray());
+        imagenPdf.setAlignment(Element.ALIGN_CENTER);
+
+        return imagenPdf;
     }
 }
