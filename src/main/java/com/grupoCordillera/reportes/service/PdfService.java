@@ -2,6 +2,7 @@ package com.grupoCordillera.reportes.service;
 
 
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
+import com.grupoCordillera.reportes.dto.VentaDetalleDto;
 import com.lowagie.text.*;
 import com.lowagie.text.pdf.PdfWriter;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,10 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.text.NumberFormat;
 import java.util.Locale;
+import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfPCell;
+import java.awt.Color;
+import java.util.Map;
 
 @Service
 public class PdfService {
@@ -44,6 +49,48 @@ public class PdfService {
             document.add(Chunk.NEWLINE);
             document.add(new Paragraph("ESTADO ACTUAL: " + reporte.getEstado() +
                     " (" + reporte.getPorcentajeCumplimiento() + "%)", fontEstado));
+            document.add(Chunk.NEWLINE);
+            document.add(new Paragraph("Resumen por Sucursales", fontEstado));
+            document.add(Chunk.NEWLINE);
+
+            // --- TABLA 1: Resumen por Sucursal ---
+            PdfPTable tablaSucursales = new PdfPTable(2); // 2 columnas
+            tablaSucursales.setWidthPercentage(100);
+
+            tablaSucursales.addCell(new PdfPCell(new Phrase("Sucursal", fontTexto)));
+            tablaSucursales.addCell(new PdfPCell(new Phrase("Total Vendido", fontTexto)));
+
+            for (Map.Entry<String, Double> entry : reporte.getTotalesPorSucursal().entrySet()) {
+                tablaSucursales.addCell(entry.getKey());
+                tablaSucursales.addCell(formatoMoneda.format(entry.getValue()));
+            }
+            document.add(tablaSucursales);
+
+            document.add(Chunk.NEWLINE);
+            document.add(new Paragraph("Detalle de Transacciones", fontEstado));
+            document.add(Chunk.NEWLINE);
+
+            // --- TABLA 2: Detalle de Productos Vendidos ---
+            PdfPTable tablaDetalles = new PdfPTable(5); // 5 columnas
+            tablaDetalles.setWidthPercentage(100);
+
+            // Cabeceras
+            String[] cabeceras = {"ID Prod.", "Producto", "Sucursal", "Cant.", "Subtotal"};
+            for (String cabecera : cabeceras) {
+                PdfPCell celda = new PdfPCell(new Phrase(cabecera, fontTexto));
+                celda.setBackgroundColor(Color.LIGHT_GRAY);
+                tablaDetalles.addCell(celda);
+            }
+
+            // Filas con datos
+            for (VentaDetalleDto detalle : reporte.getDetalleVentas()) {
+                tablaDetalles.addCell(String.valueOf(detalle.getProductoId()));
+                tablaDetalles.addCell(detalle.getProductoNombre());
+                tablaDetalles.addCell(detalle.getSucursalNombre());
+                tablaDetalles.addCell(String.valueOf(detalle.getCantidad()));
+                tablaDetalles.addCell(formatoMoneda.format(detalle.getMontoTotal()));
+            }
+            document.add(tablaDetalles);
 
             document.close();
         } catch (DocumentException e) {
@@ -51,5 +98,6 @@ public class PdfService {
         }
 
         return out.toByteArray();
+
     }
 }
