@@ -26,10 +26,15 @@ public class ReporteController {
 
     // Endpoint 1: Descargar el PDF directamente (ideal para un botón en React)
     @GetMapping("/descargar")
-    public ResponseEntity<byte[]> descargarPdf(@RequestParam Long kpiId, @RequestParam Long sucursalId) {
+    public ResponseEntity<byte[]> descargarPdf(
+            @RequestParam Long kpiId,
+            @RequestParam Long sucursalId,
+            // Agregamos el nuevo parámetro, con "MENSUAL" por defecto por si no lo envían
+            @RequestParam(defaultValue = "MENSUAL") String periodo) {
 
-        ReporteCumplimientoDto datos = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId);
-        byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datos);
+        // Pasamos el nuevo parámetro al servicio
+        ReporteCumplimientoDto reporte = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
+        byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(reporte);
 
         return ResponseEntity.ok()
                 // Le decimos al navegador que esto es un PDF y debe forzar la descarga
@@ -43,10 +48,11 @@ public class ReporteController {
     public ResponseEntity<String> enviarPdfPorCorreo(
             @RequestParam Long kpiId,
             @RequestParam Long sucursalId,
-            @RequestParam String correoDestino) {
+            @RequestParam String correoDestino,
+            @RequestParam(defaultValue = "MENSUAL") String periodo){
 
         // 1. Obtenemos la data
-        ReporteCumplimientoDto datos = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId);
+        ReporteCumplimientoDto datos = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
 
         // 2. Generamos el PDF
         byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datos);
