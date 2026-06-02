@@ -9,4 +9,6 @@ public class VentaResponseDto {
     private Long id;
     private Long sucursalId;
     private Double montoTotal;
+    private Long productoId;
+    private Integer cantidad;
 }
