@@ -26,6 +26,9 @@ import java.io.ByteArrayOutputStream;
 import java.text.NumberFormat;
 import java.util.Locale;
 import java.util.Map;
+import org.jfree.chart.plot.CategoryPlot;
+import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.data.category.DefaultCategoryDataset;
 
 @Service
 public class PdfService {
@@ -101,6 +104,10 @@ public class PdfService {
             }
             document.add(tablaDetalles);
 
+            Image graficoBarras = crearGraficoBarras(reporte.getTopProductos());
+            document.add(graficoBarras);
+            document.add(Chunk.NEWLINE);
+
             document.close();
         } catch (Exception e) {
             throw new RuntimeException("Error al generar el PDF con gráfico", e);
@@ -136,6 +143,41 @@ public class PdfService {
         plot.setLabelGenerator(labelGenerator);
 
         // 4. Transformar el gráfico de Java a una Imagen para el PDF
+        BufferedImage bufferedImage = chart.createBufferedImage(500, 300);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(bufferedImage, "png", baos);
+        Image imagenPdf = Image.getInstance(baos.toByteArray());
+        imagenPdf.setAlignment(Element.ALIGN_CENTER);
+
+        return imagenPdf;
+    }
+    private Image crearGraficoBarras(Map<String, Integer> topProductos) throws Exception {
+        // 1. Llenar los datos
+        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+        for (Map.Entry<String, Integer> entry : topProductos.entrySet()) {
+            // Se le pasa: Valor, Leyenda (Agrupación), Etiqueta Eje X
+            dataset.addValue(entry.getValue(), "Unidades", entry.getKey());
+        }
+
+        // 2. Crear el gráfico de barras visualmente
+        JFreeChart chart = ChartFactory.createBarChart(
+                "Top 10 Productos Más Vendidos", // Título
+                "Producto",                      // Etiqueta Eje X
+                "Cantidad Vendida",              // Etiqueta Eje Y
+                dataset,
+                PlotOrientation.VERTICAL,        // Orientación
+                false,                           // Mostrar leyenda
+                true,                            // Usar tooltips
+                false                            // Usar URLs
+        );
+
+        // 3. Formatear colores para que se vea corporativo y limpio
+        chart.setBackgroundPaint(Color.WHITE);
+        CategoryPlot plot = chart.getCategoryPlot();
+        plot.setBackgroundPaint(Color.WHITE);
+        plot.setRangeGridlinePaint(Color.LIGHT_GRAY);
+
+        // 4. Transformar a imagen para OpenPDF
         BufferedImage bufferedImage = chart.createBufferedImage(500, 300);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ImageIO.write(bufferedImage, "png", baos);
