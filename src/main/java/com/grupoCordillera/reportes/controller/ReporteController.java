@@ -49,17 +49,17 @@ public class ReporteController {
             @RequestParam Long kpiId,
             @RequestParam Long sucursalId,
             @RequestParam String correoDestino,
-            @RequestParam(defaultValue = "MENSUAL") String periodo){
+            @RequestParam(defaultValue = "MENSUAL") String periodo) {
 
-        // 1. Obtenemos la data
-        ReporteCumplimientoDto datos = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
+        // 1. Generar los datos
+        ReporteCumplimientoDto reporte = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
 
-        // 2. Generamos el PDF
-        byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datos);
+        // 2. Crear el PDF
+        byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(reporte);
 
-        // 3. Lo enviamos
-        emailService.enviarReporteConAdjunto(correoDestino, pdfBytes);
+        // 3. Enviar el correo usando tu EmailService
+        emailService.enviarReporteConAdjunto(correoDestino, pdfBytes, periodo);
 
-        return ResponseEntity.ok("Reporte generado y enviado con éxito a " + correoDestino);
+        return ResponseEntity.ok("Reporte enviado con éxito a " + correoDestino);
     }
 }
