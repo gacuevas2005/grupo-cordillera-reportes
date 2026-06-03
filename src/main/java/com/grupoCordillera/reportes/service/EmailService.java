@@ -14,18 +14,18 @@ public class EmailService {
     @Autowired
     private JavaMailSender mailSender;
 
-    public void enviarReporteConAdjunto(String destinatario, byte[] pdfBytes) {
+    public void enviarReporteConAdjunto(String destinatario, byte[] pdfBytes, String periodo) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
-            // El 'true' indica que es un correo multipart (con archivos adjuntos)
             MimeMessageHelper helper = new MimeMessageHelper(message, true);
 
             helper.setTo(destinatario);
-            helper.setSubject("Tu Reporte de Grupo Cordillera");
-            helper.setText("Hola,\n\nAdjunto encontrarás el último reporte de cumplimiento generado por el sistema.\n\nSaludos,\nEquipo TI.");
+            // Hacemos que el Asunto sea dinámico
+            helper.setSubject("Tu Reporte de Grupo Cordillera - " + periodo.toUpperCase());
+            helper.setText("Hola,\n\nAdjunto encontrarás el último reporte de cumplimiento " + periodo.toLowerCase() + " generado por el sistema.\n\nSaludos,\nEquipo TI.");
 
-            // Adjuntamos el archivo en memoria y le damos un nombre
-            helper.addAttachment("Reporte_Cordillera.pdf", new ByteArrayResource(pdfBytes));
+            // Hacemos que el nombre del archivo adjunto sea dinámico
+            helper.addAttachment("Reporte_Cordillera_" + periodo.toUpperCase() + ".pdf", new ByteArrayResource(pdfBytes));
 
             mailSender.send(message);
 
