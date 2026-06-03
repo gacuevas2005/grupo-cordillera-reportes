@@ -7,6 +7,7 @@ import com.grupoCordillera.reportes.client.VentaClient;
 import com.grupoCordillera.reportes.dto.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import java.util.LinkedHashMap;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -87,6 +88,25 @@ public class ReporteService {
         Double porcentaje = (ventasReales / meta) * 100;
         String estado = (porcentaje >= 100) ? "SUPERADO" : (porcentaje >= 80) ? "EN RIESGO" : "CRÍTICO";
 
+        Map<String, Integer> topProductos = detalleVentas.stream()
+                // 1. Agrupamos por nombre de producto y sumamos las cantidades
+                .collect(Collectors.groupingBy(
+                        VentaDetalleDto::getProductoNombre,
+                        Collectors.summingInt(VentaDetalleDto::getCantidad)
+                ))
+                .entrySet().stream()
+                // 2. Ordenamos de mayor a menor (reversed)
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                // 3. Tomamos solo los 10 primeros
+                .limit(10)
+                // 4. Lo volvemos a convertir en un Mapa, usando LinkedHashMap para NO perder el orden
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (e1, e2) -> e1,
+                        LinkedHashMap::new
+                ));
+
         // 6. Armar el informe final
         ReporteCumplimientoDto reporte = new ReporteCumplimientoDto();
         reporte.setNombreKpi(kpiActual.getNombre());
@@ -96,6 +116,7 @@ public class ReporteService {
         reporte.setEstado(estado);
         reporte.setDetalleVentas(detalleVentas);
         reporte.setTotalesPorSucursal(totalesPorSucursal);
+        reporte.setTopProductos(topProductos);
 
         return reporte;
     }
