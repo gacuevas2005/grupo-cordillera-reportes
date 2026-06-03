@@ -81,7 +81,6 @@ public class ReporteService {
 
         // 5. Calcular totales generales para la sucursal específica
         Double ventasReales = detalleVentas.stream()
-                .filter(v -> v.getSucursalNombre().equals(mapaSucursales.get(sucursalId)))
                 .mapToDouble(VentaDetalleDto::getMontoTotal)
                 .sum();
 
