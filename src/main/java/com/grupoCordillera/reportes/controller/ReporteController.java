@@ -1,7 +1,9 @@
 package com.grupoCordillera.reportes.controller;
 
 
+import com.grupoCordillera.reportes.dto.HistorialResumenDto;
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
+import com.grupoCordillera.reportes.repository.ReporteHistorialRepository;
 import com.grupoCordillera.reportes.service.EmailService;
 import com.grupoCordillera.reportes.service.PdfService;
 import com.grupoCordillera.reportes.service.ReporteService;
@@ -10,6 +12,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/reportes")
@@ -24,6 +28,8 @@ public class ReporteController {
     @Autowired
     private EmailService emailService;
 
+
+
     // Endpoint 1: Descargar el PDF directamente (ideal para un botón en React)
     @GetMapping("/descargar")
     public ResponseEntity<byte[]> descargarPdf(
@@ -35,6 +41,7 @@ public class ReporteController {
         // Pasamos el nuevo parámetro al servicio
         ReporteCumplimientoDto reporte = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
         byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(reporte);
+        reporteService.guardarEnHistorial(kpiId, reporte.getNombreKpi(), periodo, reporte.getVentasReales(), reporte.getEstado(), pdfBytes);
 
         return ResponseEntity.ok()
                 // Le decimos al navegador que esto es un PDF y debe forzar la descarga
@@ -57,9 +64,17 @@ public class ReporteController {
         // 2. Crear el PDF
         byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(reporte);
 
+        reporteService.guardarEnHistorial(kpiId, reporte.getNombreKpi(), periodo, reporte.getVentasReales(), reporte.getEstado(), pdfBytes);
+
         // 3. Enviar el correo usando tu EmailService
         emailService.enviarReporteConAdjunto(correoDestino, pdfBytes, periodo);
 
         return ResponseEntity.ok("Reporte enviado con éxito a " + correoDestino);
     }
+    @GetMapping("/historial")
+    public ResponseEntity<List<HistorialResumenDto>> verHistorial() {
+        List<HistorialResumenDto> lista = reporteService.listarHistorial();
+        return ResponseEntity.ok(lista);
+    }
+
 }
