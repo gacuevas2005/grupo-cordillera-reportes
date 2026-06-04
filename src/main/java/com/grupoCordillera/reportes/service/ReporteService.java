@@ -5,6 +5,8 @@ import com.grupoCordillera.reportes.client.ProductoClient;
 import com.grupoCordillera.reportes.client.SucursalClient;
 import com.grupoCordillera.reportes.client.VentaClient;
 import com.grupoCordillera.reportes.dto.*;
+import com.grupoCordillera.reportes.entity.ReporteHistorial;
+import com.grupoCordillera.reportes.repository.ReporteHistorialRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.LinkedHashMap;
@@ -28,6 +30,9 @@ public class ReporteService {
 
     @Autowired
     private SucursalClient sucursalClient;
+
+    @Autowired
+    private ReporteHistorialRepository historialRepository;
 
     public ReporteCumplimientoDto generarReporteDeCumplimiento(Long kpiId, Long sucursalId, String periodo) {
 
@@ -119,5 +124,29 @@ public class ReporteService {
         reporte.setTopProductos(topProductos);
 
         return reporte;
+    }
+
+    public void guardarEnHistorial(Long kpiId, String nombreKpi, String periodo, Double ventasReales, String estadoFinal, byte[] pdfBytes) {
+        ReporteHistorial historial = new ReporteHistorial();
+        historial.setKpiId(kpiId);
+        historial.setNombreKpi(nombreKpi);
+        historial.setPeriodo(periodo);
+        historial.setVentasReales(ventasReales);
+        historial.setEstadoFinal(estadoFinal);
+        historial.setArchivoPdf(pdfBytes);
+
+        historialRepository.save(historial);
+    }
+    public List<HistorialResumenDto> listarHistorial() {
+        return historialRepository.findAll().stream().map(h -> {
+            HistorialResumenDto dto = new HistorialResumenDto();
+            dto.setId(h.getId());
+            dto.setNombreKpi(h.getNombreKpi());
+            dto.setPeriodo(h.getPeriodo());
+            dto.setVentasReales(h.getVentasReales());
+            dto.setEstadoFinal(h.getEstadoFinal());
+            dto.setFechaGeneracion(h.getFechaGeneracion());
+            return dto;
+        }).collect(Collectors.toList());
     }
 }
