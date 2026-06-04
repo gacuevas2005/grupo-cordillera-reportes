@@ -90,4 +90,25 @@ public class ReporteController {
         return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
     }
 
+    @GetMapping("/previsualizar")
+    public ResponseEntity<byte[]> previsualizarPdf(
+            @RequestParam Long kpiId,
+            @RequestParam Long sucursalId,
+            @RequestParam(defaultValue = "MENSUAL") String periodo) {
+
+        // 1. Recolectar datos
+        ReporteCumplimientoDto reporte = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
+
+        // 2. Dibujar el PDF
+        byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(reporte);
+
+        // ¡ATENCIÓN: AQUÍ NO LLAMAMOS A guardarEnHistorial()!
+
+        // 3. Devolver al navegador
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+    }
+
 }
