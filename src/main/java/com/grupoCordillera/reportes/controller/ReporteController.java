@@ -9,6 +9,7 @@ import com.grupoCordillera.reportes.service.PdfService;
 import com.grupoCordillera.reportes.service.ReporteService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -75,6 +76,18 @@ public class ReporteController {
     public ResponseEntity<List<HistorialResumenDto>> verHistorial() {
         List<HistorialResumenDto> lista = reporteService.listarHistorial();
         return ResponseEntity.ok(lista);
+    }
+    @GetMapping("/historial/{id}/descargar")
+    public ResponseEntity<byte[]> descargarHistorial(@PathVariable Long id) {
+
+        byte[] pdfBytes = reporteService.descargarPdfHistorico(id);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        // Le damos un nombre por defecto al archivo
+        headers.setContentDispositionFormData("attachment", "Reporte_Historico_" + id + ".pdf");
+
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
     }
 
 }

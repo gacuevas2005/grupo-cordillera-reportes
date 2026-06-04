@@ -149,4 +149,10 @@ public class ReporteService {
             return dto;
         }).collect(Collectors.toList());
     }
+    public byte[] descargarPdfHistorico(Long id) {
+        ReporteHistorial historial = historialRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Reporte histórico no encontrado"));
+
+        return historial.getArchivoPdf(); // Devolvemos el archivo binario
+    }
 }
