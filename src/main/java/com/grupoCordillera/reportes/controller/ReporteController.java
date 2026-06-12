@@ -5,7 +5,6 @@ import com.grupoCordillera.reportes.service.PdfService;
 import com.grupoCordillera.reportes.service.EmailService;
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
 import com.grupoCordillera.reportes.dto.HistorialResumenDto;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -19,9 +18,8 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reportes")
-// 🎯 CORREGIDO: Se remueven los parámetros fijos (origins = "*", etc.) que duplicaban los headers del Gateway.
-// Al dejar @CrossOrigin sin argumentos, permitimos que herede las políticas seguras del API Gateway sin corromper el 'Access-Control-Allow-Origin'.
-@CrossOrigin
+// ✅ @CrossOrigin eliminado: el CORS lo gestiona exclusivamente el BFF (SecurityConfig.java).
+// Tener @CrossOrigin aquí además del BFF duplicaba el header Access-Control-Allow-Origin.
 public class ReporteController {
 
     @Autowired
@@ -33,12 +31,11 @@ public class ReporteController {
     @Autowired
     private EmailService emailService;
 
-    // 📋 1. Obtener Historial de Reportes con Seguridad de Sucursal (Multi-Tenancy)
+    // 1. Obtener historial de reportes con seguridad de sucursal
     @GetMapping("/historial")
     public ResponseEntity<List<HistorialResumenDto>> obtenerHistorial(
             @RequestHeader(value = "X-User-Role", required = false) String rol,
             @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
-
         if (rol == null || rol.trim().isEmpty()) {
             return ResponseEntity.ok(new ArrayList<>());
         }
@@ -46,7 +43,7 @@ public class ReporteController {
         return ResponseEntity.ok(historial);
     }
 
-    // 📥 2. Descargar un Reporte Antiguo desde la Base de Datos (Binario PDF)
+    // 2. Descargar un reporte antiguo desde la base de datos (binario PDF)
     @GetMapping("/historial/{id}/descargar")
     public ResponseEntity<byte[]> descargarReporteAntiguo(@PathVariable Long id) {
         try {
@@ -60,7 +57,7 @@ public class ReporteController {
         }
     }
 
-    // ⚙️ 3. Generar, Guardar en Historial y Descargar Reporte Nuevo en Tiempo Real
+    // 3. Generar, guardar en historial y descargar reporte nuevo en tiempo real
     @GetMapping("/descargar")
     public ResponseEntity<?> generarYDescargarReporte(
             @RequestParam(required = false) Long kpiId,
@@ -68,18 +65,16 @@ public class ReporteController {
             @RequestParam(required = false) String periodo,
             @RequestHeader(value = "X-User-Role", required = false) String rol,
             @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
-
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
-
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
                     kpiFinal, sucursalFinal, periodoFinal, rol, sucursalAutenticada
             );
             byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datosReporte);
-            reporteService.guardarEnHistorial(kpiFinal, sucursalFinal, datosReporte.getNombreKpi(), periodoFinal, datosReporte.getVentasReales(), datosReporte.getEstado(), pdfBytes);
-
+            reporteService.guardarEnHistorial(kpiFinal, sucursalFinal, datosReporte.getNombreKpi(),
+                    periodoFinal, datosReporte.getVentasReales(), datosReporte.getEstado(), pdfBytes);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
             headers.setContentDispositionFormData("attachment", "Reporte_Cordillera_" + periodoFinal + ".pdf");
@@ -90,7 +85,7 @@ public class ReporteController {
         }
     }
 
-    // 📧 4. Enviar Reporte Analítico por Correo Electrónico
+    // 4. Enviar reporte analítico por correo electrónico
     @PostMapping("/enviar")
     public ResponseEntity<String> enviarReportePorCorreo(
             @RequestParam(required = false) Long kpiId,
@@ -99,11 +94,9 @@ public class ReporteController {
             @RequestParam String correoDestino,
             @RequestHeader(value = "X-User-Role", required = false) String rol,
             @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
-
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
-
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
                     kpiFinal, sucursalFinal, periodoFinal, rol, sucursalAutenticada
@@ -117,7 +110,7 @@ public class ReporteController {
         }
     }
 
-    // 👁️ 5. Previsualización del Reporte en Navegador (Inline PDF)
+    // 5. Previsualización del reporte en navegador (inline PDF)
     @GetMapping("/previsualizar")
     public ResponseEntity<?> previsualizarReporte(
             @RequestParam(required = false) Long kpiId,
@@ -125,43 +118,35 @@ public class ReporteController {
             @RequestParam(required = false) String periodo,
             @RequestHeader(value = "X-User-Role", required = false) String rol,
             @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
-
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
-
-        System.out.println("👁️ [MS-REPORTES] -> Previsualizando PDF. KPI Solicitado: " + kpiFinal + " | Sucursal Calculada: " + sucursalFinal);
-
+        System.out.println("[MS-REPORTES] -> Previsualizando PDF. KPI: " + kpiFinal + " | Sucursal: " + sucursalFinal);
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
                     kpiFinal, sucursalFinal, periodoFinal, rol, sucursalAutenticada
             );
-
             byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datosReporte);
-
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
             headers.add("Content-Disposition", "inline; filename=Previsualizacion.pdf");
-
             return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
         } catch (Exception e) {
-            System.err.println("🚨 Error crítico en generación de previsualización: " + e.getMessage());
+            System.err.println("[ERROR CRÍTICO] -> " + e.getMessage());
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Error interno al compilar PDF", "details", e.getMessage()));
         }
     }
 
-    // 🛠️ Helper de resolución multi-tenancy interno e inteligente
+    // Helper de resolución multi-tenancy
     private Long resolverSucursalPorRol(String rol, Long sucursalId, Long sucursalAutenticada) {
-        if (sucursalId != null && sucursalId != 0) {
-            return sucursalId;
-        }
-        if (rol != null && !"ADMIN".equalsIgnoreCase(rol.trim()) && sucursalAutenticada != null && sucursalAutenticada != 0) {
+        if (sucursalId != null && sucursalId != 0) return sucursalId;
+        if (rol != null && !"ADMIN".equalsIgnoreCase(rol.trim())
+                && sucursalAutenticada != null && sucursalAutenticada != 0) {
             return sucursalAutenticada;
         }
-
-        System.out.println("⚠️ [MS-REPORTES] -> Sucursal vino vacía o en 0. Forzando fallback automático a Sucursal: 7");
+        System.out.println("[MS-REPORTES] -> Sucursal vacía, usando fallback: 7");
         return 7L;
     }
 }

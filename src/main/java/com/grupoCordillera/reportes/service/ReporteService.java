@@ -11,10 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,45 +32,63 @@ public class ReporteService {
     @Autowired
     private ReporteHistorialRepository historialRepository;
 
-    // 📊 GENERACIÓN DINÁMICA DE REPORTES DE RENDIMIENTO COMERCIAL
     public ReporteCumplimientoDto generarReporteDeCumplimiento(Long kpiId, Long sucursalId, String periodo, String userRole, Long sucursalAutenticada) {
 
-        // 1. 🛡️ AISLAMIENTO MULTI-TENANCY: Si el solicitante es GERENTE, se fuerza su sucursal del token JWT
+        // 1. AISLAMIENTO MULTI-TENANCY: Si el solicitante es GERENTE, se fuerza su sucursal del token JWT
         if (userRole != null && !"ADMIN".equalsIgnoreCase(userRole.trim())) {
-            System.out.println("[🔒 SEGURIDAD DE REPORTES] -> Rol restringido: Forzando Sucursal ID " + sucursalAutenticada);
+            System.out.println("[SEGURIDAD] -> Rol restringido: Forzando Sucursal ID " + sucursalAutenticada);
             sucursalId = sucursalAutenticada;
         }
         final Long sucursalFiltroFinal = sucursalId;
 
-        // 2. 🎯 CONSUMO SEGURO DEL KPICLIENT (Metadata Estructural)
+        // 2. CONSUMO DEL KPICLIENT: Metadata de la definición (nombre, meta, tipoCalculo)
         String nombreKpiDetectado = "Métrica de Rendimiento Comercial";
-        String tipoCalculo = "SUMAR_MONTO"; // Por defecto asume que mide dinero (CLP)
+        String tipoCalculo = "SUMAR_MONTO";
         Double meta = 0.0;
 
         try {
             KpiDefinicionDto definicionKpi = kpiClient.obtenerDefinicion(kpiId);
             if (definicionKpi != null) {
-                if (definicionKpi.getValorObjetivo() != null) {
-                    meta = definicionKpi.getValorObjetivo();
-                }
-                if (definicionKpi.getNombre() != null) {
-                    nombreKpiDetectado = definicionKpi.getNombre();
-                }
-                if (definicionKpi.getTipoCalculo() != null) {
-                    tipoCalculo = definicionKpi.getTipoCalculo();
-                }
+                if (definicionKpi.getValorObjetivo() != null) meta = definicionKpi.getValorObjetivo();
+                if (definicionKpi.getNombre() != null) nombreKpiDetectado = definicionKpi.getNombre();
+                if (definicionKpi.getTipoCalculo() != null) tipoCalculo = definicionKpi.getTipoCalculo();
             }
         } catch (Exception e) {
-            System.out.println("[⚠️ ADVERTENCIA REPORTES] -> No se pudo conectar con ms-kpi. Usando fallback local.");
+            System.out.println("[ADVERTENCIA] -> No se pudo conectar con ms-kpi para la definición. Usando fallback.");
         }
 
-        // 3. 🏬 Diccionarios maestros de soporte externo (Productos y Sucursales)
+        // 3. ✅ NUEVO: LEER EL VALOR ACUMULADO REAL DESDE LAS MÉTRICAS DEL KPI
+        // El ms-kpi acumula el progreso en kpi_metricas cada vez que ocurre una venta.
+        // Ese valorActual es la fuente de verdad: evitamos recalcular desde ventas para este dato.
+        Double ventasRealesDesdeKpi = null;
+        try {
+            List<KpiMetricaDto> metricas = kpiClient.obtenerMetricasPorDefinicion(kpiId, userRole, sucursalFiltroFinal);
+            if (metricas != null && !metricas.isEmpty()) {
+                if (sucursalFiltroFinal != null) {
+                    // Para GERENTE: buscamos la métrica exacta de su sucursal
+                    ventasRealesDesdeKpi = metricas.stream()
+                            .filter(m -> sucursalFiltroFinal.equals(m.getSucursalId()))
+                            .mapToDouble(m -> m.getValorActual() != null ? m.getValorActual() : 0.0)
+                            .sum();
+                } else {
+                    // Para ADMIN: sumamos el valorActual de todas las sucursales
+                    ventasRealesDesdeKpi = metricas.stream()
+                            .mapToDouble(m -> m.getValorActual() != null ? m.getValorActual() : 0.0)
+                            .sum();
+                }
+                System.out.println("[KPI] -> Valor acumulado leído desde ms-kpi: " + ventasRealesDesdeKpi);
+            }
+        } catch (Exception e) {
+            System.out.println("[ADVERTENCIA] -> No se pudo leer métricas desde ms-kpi. Se calculará desde ventas como fallback.");
+        }
+
+        // 4. Diccionarios maestros de productos y sucursales
         Map<Long, String> mapaProductos = Map.of();
         try {
             mapaProductos = productoClient.listarTodosLosProductos().stream()
                     .collect(Collectors.toMap(ProductoResponseDto::getId, ProductoResponseDto::getNombre, (p1, p2) -> p1));
         } catch (Exception e) {
-            System.out.println("[⚠️ ERROR FEIGN] -> No se pudo conectar con ms-productos.");
+            System.out.println("[ERROR FEIGN] -> No se pudo conectar con ms-productos.");
         }
 
         Map<Long, String> mapaSucursales = Map.of();
@@ -81,37 +96,35 @@ public class ReporteService {
             mapaSucursales = sucursalClient.listarTodasLasSucursales().stream()
                     .collect(Collectors.toMap(SucursalResponseDto::getId, SucursalResponseDto::getNombre, (s1, s2) -> s1));
         } catch (Exception e) {
-            System.out.println("[⚠️ ERROR FEIGN] -> No se pudo conectar con ms-sucursales.");
+            System.out.println("[ERROR FEIGN] -> No se pudo conectar con ms-sucursales.");
         }
 
+        // 5. Filtrado de ventas (usado para el detalle, top productos y gráfico)
         LocalDateTime ahora = LocalDateTime.now();
         LocalDateTime fechaLimite;
-
         switch (periodo.toUpperCase()) {
             case "SEMANAL": fechaLimite = ahora.minusWeeks(1); break;
-            case "ANUAL": fechaLimite = ahora.minusYears(1); break;
+            case "ANUAL":   fechaLimite = ahora.minusYears(1); break;
             case "MENSUAL":
-            default: fechaLimite = coderCalcularFechaLimiteMensualOFallback(todasLasVentasDisponibles()); break;
+            default:        fechaLimite = coderCalcularFechaLimiteMensualOFallback(todasLasVentasDisponibles()); break;
         }
 
-        // 4. 🔄 Flujo y Filtrado de Ventas Transaccionales en Memoria
         List<VentaResponseDto> todasLasVentas = new ArrayList<>();
         try {
             todasLasVentas = ventaClient.listarTodasLasVentas();
         } catch (Exception e) {
-            System.out.println("[🚨 ERROR CRÍTICO FEIGN] -> No se pueden recuperar las ventas de ms-ventas.");
+            System.out.println("[ERROR CRÍTICO FEIGN] -> No se pueden recuperar las ventas de ms-ventas.");
         }
-
-        List<VentaResponseDto> ventasFiltradas = todasLasVentas.stream()
-                .filter(v -> sucursalFiltroFinal == null || v.getSucursalId().equals(sucursalFiltroFinal))
-                .collect(Collectors.toList());
 
         final Map<Long, String> prodMap = mapaProductos;
         final Map<Long, String> sucMap = mapaSucursales;
         final LocalDateTime limite = fechaLimite;
 
+        List<VentaResponseDto> ventasFiltradas = todasLasVentas.stream()
+                .filter(v -> sucursalFiltroFinal == null || v.getSucursalId().equals(sucursalFiltroFinal))
+                .collect(Collectors.toList());
+
         List<VentaDetalleDto> detalleVentas = ventasFiltradas.stream()
-                // Robustez: Si la fecha viene nula o para pruebas queremos bypass, dejamos pasar o evaluamos rango seguro
                 .filter(v -> v.getFechaVenta() == null || v.getFechaVenta().isAfter(limite))
                 .map(v -> {
                     VentaDetalleDto dto = new VentaDetalleDto();
@@ -123,36 +136,43 @@ public class ReporteService {
                     return dto;
                 }).collect(Collectors.toList());
 
-        // 5. 📊 Construcción de datos del Gráfico (Monto acumulado por sucursal)
+        // 6. Gráfico: totales por sucursal (siempre desde ventas para mostrar distribución)
         Map<String, Double> totalesPorSucursal = detalleVentas.stream()
                 .collect(Collectors.groupingBy(
                         VentaDetalleDto::getSucursalNombre,
                         Collectors.summingDouble(VentaDetalleDto::getMontoTotal)
                 ));
 
-        // Ajuste visual del gráfico para vistas locales de Gerentes de una sola sucursal
         if (totalesPorSucursal.size() <= 1) {
             String nombreSucursalActual = sucMap.getOrDefault(sucursalFiltroFinal, "Sucursal " + sucursalFiltroFinal);
-            if(totalesPorSucursal.isEmpty()) {
-                totalesPorSucursal.put(nombreSucursalActual, 0.0);
-            }
+            if (totalesPorSucursal.isEmpty()) totalesPorSucursal.put(nombreSucursalActual, 0.0);
             totalesPorSucursal.put("Resto del Holding (Ref)", 0.0);
         }
 
-        // 6. 🧮 DETERMINACIÓN DEL AVANCE REAL (Segregado según tipo de cálculo)
-        Double ventasReales = 0.0;
-        if ("SUMAR_PRODUCTOS".equalsIgnoreCase(tipoCalculo)) {
-            ventasReales = detalleVentas.stream().mapToDouble(VentaDetalleDto::getCantidad).sum();
-        } else if ("CONTAR_TRANSACCIONES".equalsIgnoreCase(tipoCalculo)) {
-            ventasReales = Double.valueOf(detalleVentas.size());
+        // 7. ✅ CÁLCULO FINAL DEL AVANCE REAL
+        // Prioridad: valorActual acumulado en ms-kpi (fuente de verdad).
+        // Fallback: si ms-kpi no respondió, calculamos desde las ventas locales (comportamiento anterior).
+        Double ventasReales;
+        if (ventasRealesDesdeKpi != null) {
+            // Fuente principal: el valor acumulado que gestiona ms-kpi
+            ventasReales = ventasRealesDesdeKpi;
+            System.out.println("[REPORTE] -> Usando valorActual de ms-kpi: " + ventasReales);
         } else {
-            // "SUMAR_MONTO" -> Suma los montos en CLP (Ej: los 4.000.000.000 de la sucursal 7)
-            ventasReales = detalleVentas.stream().mapToDouble(VentaDetalleDto::getMontoTotal).sum();
+            // Fallback: recalcular desde ventas (igual que antes, por si ms-kpi no está disponible)
+            System.out.println("[REPORTE] -> Fallback: calculando ventasReales desde ms-ventas.");
+            if ("SUMAR_PRODUCTOS".equalsIgnoreCase(tipoCalculo)) {
+                ventasReales = detalleVentas.stream().mapToDouble(VentaDetalleDto::getCantidad).sum();
+            } else if ("CONTAR_TRANSACCIONES".equalsIgnoreCase(tipoCalculo)) {
+                ventasReales = (double) detalleVentas.size();
+            } else {
+                ventasReales = detalleVentas.stream().mapToDouble(VentaDetalleDto::getMontoTotal).sum();
+            }
         }
 
         Double porcentaje = (meta > 0) ? (ventasReales / meta) * 100 : 0.0;
         String estado = (porcentaje >= 100) ? "SUPERADO" : (porcentaje >= 80) ? "EN RIESGO" : "CRÍTICO";
 
+        // 8. Top 10 productos por cantidad (siempre desde ventas para el detalle)
         Map<String, Integer> topProductos = detalleVentas.stream()
                 .collect(Collectors.groupingBy(
                         VentaDetalleDto::getProductoNombre,
@@ -172,7 +192,7 @@ public class ReporteService {
             topProductos.put("Sin Operaciones", 0);
         }
 
-        // 7. Estructuración del DTO de Respuesta final
+        // 9. Construcción del DTO de respuesta final
         ReporteCumplimientoDto reporte = new ReporteCumplimientoDto();
         reporte.setNombreSucursal(sucMap.getOrDefault(sucursalFiltroFinal, "Sucursal " + sucursalFiltroFinal));
         reporte.setNombreKpi(nombreKpiDetectado);
@@ -187,7 +207,6 @@ public class ReporteService {
         return reporte;
     }
 
-    // 🌟 PERSISTENCIA HISTÓRICA CORREGIDA: Sincronizada al 100% con tu ReporteController
     public void guardarEnHistorial(Long kpiId, Long sucursalId, String nombreKpi, String periodo, Double ventasReales, String estadoFinal, byte[] pdfBytes) {
         ReporteHistorial historial = new ReporteHistorial();
         historial.setKpiId(kpiId);
@@ -197,7 +216,6 @@ public class ReporteService {
         historial.setVentasReales(ventasReales);
         historial.setEstadoFinal(estadoFinal);
         historial.setArchivoPdf(pdfBytes);
-
         historialRepository.save(historial);
     }
 
@@ -227,16 +245,14 @@ public class ReporteService {
                 .orElseThrow(() -> new RuntimeException("Reporte no encontrado con ID: " + id));
     }
 
-    // Helper interno para evitar romper flujos de pruebas locales si las fechas del microservicio de ventas son antiguas
     private LocalDateTime coderCalcularFechaLimiteMensualOFallback(List<VentaResponseDto> ventas) {
         if (ventas == null || ventas.isEmpty()) {
             return LocalDateTime.now().minusMonths(1);
         }
-        // Si hay ventas pero son de prueba y antiguas, nos adaptamos automáticamente para no dejar el reporte vacío
         return LocalDateTime.now().minusYears(5);
     }
 
     private List<VentaResponseDto> todasLasVentasDisponibles() {
-        try { return ventaClient.listarTodasLasVentas(); } catch(Exception e) { return new ArrayList<>(); }
+        try { return ventaClient.listarTodasLasVentas(); } catch (Exception e) { return new ArrayList<>(); }
     }
 }
