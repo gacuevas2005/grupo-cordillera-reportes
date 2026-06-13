@@ -30,8 +30,9 @@ public class ReporteHistorial {
     @Column(name = "fecha_generacion", updatable = false)
     private LocalDateTime fechaGeneracion;
 
-    // 📄 Guardado de los bytes del PDF de forma segura
+
     @Lob
-    @Column(name = "archivo_pdf") // O "BYTEA" si estás usando PostgreSQL
+    @Basic(fetch = FetchType.LAZY)
+    @Column(name = "archivo_pdf")
     private byte[] archivoPdf;
 }

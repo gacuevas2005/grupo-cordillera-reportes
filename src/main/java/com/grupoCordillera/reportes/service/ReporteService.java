@@ -208,6 +208,8 @@ public class ReporteService {
     }
 
     public void guardarEnHistorial(Long kpiId, Long sucursalId, String nombreKpi, String periodo, Double ventasReales, String estadoFinal, byte[] pdfBytes) {
+        System.out.println("GUARDANDO REPORTE EN HISTORIAL");
+        System.out.println("SUCURSAL A GUARDAR: " + sucursalId);
         ReporteHistorial historial = new ReporteHistorial();
         historial.setKpiId(kpiId);
         historial.setSucursalId(sucursalId);
@@ -217,29 +219,22 @@ public class ReporteService {
         historial.setEstadoFinal(estadoFinal);
         historial.setArchivoPdf(pdfBytes);
         historialRepository.save(historial);
+
     }
 
-    public List<HistorialResumenDto> listarHistorialPorSeguridad(String rol, Long sucursalAutenticada) {
-        List<ReporteHistorial> entidades;
+    public List<HistorialResumenDto> listarHistorialPorSeguridad(
+            String rol,
+            Long sucursalAutenticada) {
+
         if ("ADMIN".equalsIgnoreCase(rol.trim())) {
-            entidades = historialRepository.findAll();
-        } else {
-            entidades = historialRepository.findBySucursalId(sucursalAutenticada);
+            return historialRepository.obtenerTodosLosResumenes();
         }
 
-        return entidades.stream().map(h -> {
-            HistorialResumenDto dto = new HistorialResumenDto();
-            dto.setId(h.getId());
-            dto.setNombreKpi(h.getNombreKpi());
-            dto.setPeriodo(h.getPeriodo());
-            dto.setVentasReales(h.getVentasReales());
-            dto.setEstadoFinal(h.getEstadoFinal());
-            dto.setFechaGeneracion(h.getFechaGeneracion());
-            return dto;
-        }).collect(Collectors.toList());
+        return historialRepository.obtenerResumenPorSucursal(sucursalAutenticada);
     }
 
     public byte[] descargarPdfHistorico(Long id) {
+
         return historialRepository.findById(id)
                 .map(ReporteHistorial::getArchivoPdf)
                 .orElseThrow(() -> new RuntimeException("Reporte no encontrado con ID: " + id));

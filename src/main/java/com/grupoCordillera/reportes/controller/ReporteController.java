@@ -67,6 +67,9 @@ public class ReporteController {
             @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
+        System.out.println("ROL HEADER: " + rol);
+        System.out.println("SUCURSAL HEADER: " + sucursalAutenticada);
+        System.out.println("SUCURSAL REQUEST PARAM: " + sucursalId);
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
@@ -140,13 +143,15 @@ public class ReporteController {
     }
 
     // Helper de resolución multi-tenancy
-    private Long resolverSucursalPorRol(String rol, Long sucursalId, Long sucursalAutenticada) {
-        if (sucursalId != null && sucursalId != 0) return sucursalId;
-        if (rol != null && !"ADMIN".equalsIgnoreCase(rol.trim())
-                && sucursalAutenticada != null && sucursalAutenticada != 0) {
-            return sucursalAutenticada;
+    private Long resolverSucursalPorRol(
+            String rol,
+            Long sucursalId,
+            Long sucursalAutenticada) {
+
+        if ("ADMIN".equalsIgnoreCase(rol)) {
+            return sucursalId;
         }
-        System.out.println("[MS-REPORTES] -> Sucursal vacía, usando fallback: 7");
-        return 7L;
+
+        return sucursalAutenticada;
     }
 }
