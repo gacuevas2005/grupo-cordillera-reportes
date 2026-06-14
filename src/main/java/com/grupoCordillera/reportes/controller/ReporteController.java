@@ -1,10 +1,17 @@
-package com.grupoCordillera.reportes.Controller;
+package com.grupoCordillera.reportes.controller;
 
 import com.grupoCordillera.reportes.service.ReporteService;
 import com.grupoCordillera.reportes.service.PdfService;
 import com.grupoCordillera.reportes.service.EmailService;
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
 import com.grupoCordillera.reportes.dto.HistorialResumenDto;
+
+// Importaciones de Swagger / OpenAPI
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,8 +25,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reportes")
-// ✅ @CrossOrigin eliminado: el CORS lo gestiona exclusivamente el BFF (SecurityConfig.java).
-// Tener @CrossOrigin aquí además del BFF duplicaba el header Access-Control-Allow-Origin.
+@Tag(name = "Reportes", description = "API para la generación, gestión y envío de reportes PDF de cumplimiento de KPIs")
 public class ReporteController {
 
     @Autowired
@@ -32,10 +38,16 @@ public class ReporteController {
     private EmailService emailService;
 
     // 1. Obtener historial de reportes con seguridad de sucursal
+    @Operation(
+            summary = "Obtener historial de reportes",
+            description = "Devuelve una lista con el resumen de los reportes generados previamente. Aplica aislamiento multi-tenancy según el rol del usuario."
+    )
+    @ApiResponse(responseCode = "200", description = "Lista de historial devuelta exitosamente")
     @GetMapping("/historial")
     public ResponseEntity<List<HistorialResumenDto>> obtenerHistorial(
-            @RequestHeader(value = "X-User-Role", required = false) String rol,
-            @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+            @Parameter(description = "Rol del usuario inyectado por el BFF") @RequestHeader(value = "X-User-Role", required = false) String rol,
+            @Parameter(description = "ID de la sucursal del usuario inyectado por el BFF") @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+
         if (rol == null || rol.trim().isEmpty()) {
             return ResponseEntity.ok(new ArrayList<>());
         }
@@ -44,8 +56,15 @@ public class ReporteController {
     }
 
     // 2. Descargar un reporte antiguo desde la base de datos (binario PDF)
+    @Operation(
+            summary = "Descargar reporte histórico",
+            description = "Recupera un archivo PDF binario almacenado en la base de datos usando su ID del historial."
+    )
+    @ApiResponse(responseCode = "200", description = "Archivo PDF descargado exitosamente")
+    @ApiResponse(responseCode = "404", description = "Reporte histórico no encontrado")
     @GetMapping("/historial/{id}/descargar")
-    public ResponseEntity<byte[]> descargarReporteAntiguo(@PathVariable Long id) {
+    public ResponseEntity<byte[]> descargarReporteAntiguo(
+            @Parameter(description = "ID único del reporte en el historial") @PathVariable Long id) {
         try {
             byte[] pdfBytes = reporteService.descargarPdfHistorico(id);
             HttpHeaders headers = new HttpHeaders();
@@ -58,19 +77,23 @@ public class ReporteController {
     }
 
     // 3. Generar, guardar en historial y descargar reporte nuevo en tiempo real
+    @Operation(
+            summary = "Generar y descargar nuevo reporte",
+            description = "Calcula el cumplimiento en tiempo real, compila un PDF, lo registra en el historial y fuerza su descarga en el cliente."
+    )
+    @ApiResponse(responseCode = "200", description = "Reporte generado y descargado exitosamente")
     @GetMapping("/descargar")
     public ResponseEntity<?> generarYDescargarReporte(
-            @RequestParam(required = false) Long kpiId,
-            @RequestParam(required = false) Long sucursalId,
-            @RequestParam(required = false) String periodo,
-            @RequestHeader(value = "X-User-Role", required = false) String rol,
-            @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+            @Parameter(description = "ID del KPI a evaluar") @RequestParam(required = false) Long kpiId,
+            @Parameter(description = "ID de la sucursal (solo aplicable para ADMIN)") @RequestParam(required = false) Long sucursalId,
+            @Parameter(description = "Periodo de evaluación (ej. MENSUAL, ANUAL)") @RequestParam(required = false) String periodo,
+            @Parameter(hidden = true) @RequestHeader(value = "X-User-Role", required = false) String rol,
+            @Parameter(hidden = true) @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
-        System.out.println("ROL HEADER: " + rol);
-        System.out.println("SUCURSAL HEADER: " + sucursalAutenticada);
-        System.out.println("SUCURSAL REQUEST PARAM: " + sucursalId);
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
+
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
                     kpiFinal, sucursalFinal, periodoFinal, rol, sucursalAutenticada
@@ -78,6 +101,7 @@ public class ReporteController {
             byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datosReporte);
             reporteService.guardarEnHistorial(kpiFinal, sucursalFinal, datosReporte.getNombreKpi(),
                     periodoFinal, datosReporte.getVentasReales(), datosReporte.getEstado(), pdfBytes);
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
             headers.setContentDispositionFormData("attachment", "Reporte_Cordillera_" + periodoFinal + ".pdf");
@@ -89,17 +113,24 @@ public class ReporteController {
     }
 
     // 4. Enviar reporte analítico por correo electrónico
+    @Operation(
+            summary = "Enviar reporte PDF por correo",
+            description = "Genera el reporte de cumplimiento en tiempo real y lo envía como archivo adjunto a la dirección de correo especificada."
+    )
+    @ApiResponse(responseCode = "200", description = "Correo enviado con éxito")
     @PostMapping("/enviar")
     public ResponseEntity<String> enviarReportePorCorreo(
-            @RequestParam(required = false) Long kpiId,
-            @RequestParam(required = false) Long sucursalId,
-            @RequestParam(required = false) String periodo,
-            @RequestParam String correoDestino,
-            @RequestHeader(value = "X-User-Role", required = false) String rol,
-            @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+            @Parameter(description = "ID del KPI") @RequestParam(required = false) Long kpiId,
+            @Parameter(description = "ID de la sucursal (solo ADMIN)") @RequestParam(required = false) Long sucursalId,
+            @Parameter(description = "Periodo de evaluación") @RequestParam(required = false) String periodo,
+            @Parameter(description = "Correo electrónico del destinatario", required = true) @RequestParam String correoDestino,
+            @Parameter(hidden = true) @RequestHeader(value = "X-User-Role", required = false) String rol,
+            @Parameter(hidden = true) @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
+
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
                     kpiFinal, sucursalFinal, periodoFinal, rol, sucursalAutenticada
@@ -114,29 +145,34 @@ public class ReporteController {
     }
 
     // 5. Previsualización del reporte en navegador (inline PDF)
+    @Operation(
+            summary = "Previsualizar PDF en el navegador",
+            description = "Genera el reporte PDF y lo devuelve con la cabecera 'inline' para que el navegador lo muestre en pantalla en lugar de descargarlo."
+    )
     @GetMapping("/previsualizar")
     public ResponseEntity<?> previsualizarReporte(
-            @RequestParam(required = false) Long kpiId,
-            @RequestParam(required = false) Long sucursalId,
-            @RequestParam(required = false) String periodo,
-            @RequestHeader(value = "X-User-Role", required = false) String rol,
-            @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+            @Parameter(description = "ID del KPI") @RequestParam(required = false) Long kpiId,
+            @Parameter(description = "ID de la sucursal") @RequestParam(required = false) Long sucursalId,
+            @Parameter(description = "Periodo de evaluación") @RequestParam(required = false) String periodo,
+            @Parameter(hidden = true) @RequestHeader(value = "X-User-Role", required = false) String rol,
+            @Parameter(hidden = true) @RequestHeader(value = "X-Sucursal-Id", required = false) Long sucursalAutenticada) {
+
         Long kpiFinal = (kpiId != null && kpiId != 0) ? kpiId : 1L;
         String periodoFinal = (periodo != null && !periodo.trim().isEmpty()) ? periodo : "MENSUAL";
         Long sucursalFinal = resolverSucursalPorRol(rol, sucursalId, sucursalAutenticada);
-        System.out.println("[MS-REPORTES] -> Previsualizando PDF. KPI: " + kpiFinal + " | Sucursal: " + sucursalFinal);
+
         try {
             ReporteCumplimientoDto datosReporte = reporteService.generarReporteDeCumplimiento(
                     kpiFinal, sucursalFinal, periodoFinal, rol, sucursalAutenticada
             );
             byte[] pdfBytes = pdfService.generarPdfDeCumplimiento(datosReporte);
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
+            // El truco para que se abra en el navegador es 'inline'
             headers.add("Content-Disposition", "inline; filename=Previsualizacion.pdf");
             return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
         } catch (Exception e) {
-            System.err.println("[ERROR CRÍTICO] -> " + e.getMessage());
-            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Error interno al compilar PDF", "details", e.getMessage()));
         }

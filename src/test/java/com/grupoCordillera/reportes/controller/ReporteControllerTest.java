@@ -1,6 +1,5 @@
 package com.grupoCordillera.reportes.controller;
 
-
 import com.grupoCordillera.reportes.dto.ReporteCumplimientoDto;
 import com.grupoCordillera.reportes.service.EmailService;
 import com.grupoCordillera.reportes.service.PdfService;
@@ -13,8 +12,6 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -22,7 +19,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(
-        controllers = com.grupoCordillera.reportes.Controller.ReporteController.class,
+        controllers = com.grupoCordillera.reportes.controller.ReporteController.class,
         excludeAutoConfiguration = {SecurityAutoConfiguration.class}
 )
 class ReporteControllerTest {
@@ -45,6 +42,7 @@ class ReporteControllerTest {
         Long kpiId = 1L;
         Long sucursalId = 1L;
         String periodo = "2026-06";
+        String rol = "ADMIN"; // Simulamos el rol
         byte[] pdfFalso = new byte[]{0x25, 0x50, 0x44, 0x46}; // %PDF
 
         ReporteCumplimientoDto reporteFalso = new ReporteCumplimientoDto();
@@ -52,20 +50,33 @@ class ReporteControllerTest {
         reporteFalso.setVentasReales(100.0);
         reporteFalso.setEstado("OK");
 
-        when(reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo)).thenReturn(reporteFalso);
+        // 🛠️ CORRECCIÓN 1: Ahora recibe 5 argumentos (incluyendo rol y sucursalAutenticada)
+        when(reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo, rol, sucursalId))
+                .thenReturn(reporteFalso);
         when(pdfService.generarPdfDeCumplimiento(reporteFalso)).thenReturn(pdfFalso);
 
         // Act & Assert
         mockMvc.perform(get("/api/reportes/descargar")
                         .param("kpiId", kpiId.toString())
                         .param("sucursalId", sucursalId.toString())
-                        .param("periodo", periodo))
+                        .param("periodo", periodo)
+                        // 👈 Inyectamos las cabeceras HTTP que espera el nuevo controlador
+                        .header("X-User-Role", rol)
+                        .header("X-Sucursal-Id", sucursalId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_PDF))
                 .andExpect(header().exists("Content-Disposition"));
 
-        // Verificamos que se haya guardado en el historial
-        verify(reporteService, times(1)).guardarEnHistorial(eq(kpiId), eq("Meta Prueba"), eq(periodo), eq(100.0), eq("OK"), eq(pdfFalso));
+        // 🛠️ CORRECCIÓN 2: El historial ahora recibe 7 argumentos (Se añadió sucursalId)
+        verify(reporteService, times(1)).guardarEnHistorial(
+                eq(kpiId),
+                eq(sucursalId), // 👈 Argumento nuevo requerido
+                eq("Meta Prueba"),
+                eq(periodo),
+                eq(100.0),
+                eq("OK"),
+                eq(pdfFalso)
+        );
     }
 
     @Test
@@ -75,6 +86,7 @@ class ReporteControllerTest {
         Long sucursalId = 1L;
         String periodo = "2026-06";
         String correo = "admin@cordillera.cl";
+        String rol = "ADMIN";
         byte[] pdfFalso = new byte[]{10, 20, 30};
 
         ReporteCumplimientoDto reporteFalso = new ReporteCumplimientoDto();
@@ -82,7 +94,9 @@ class ReporteControllerTest {
         reporteFalso.setVentasReales(100.0);
         reporteFalso.setEstado("OK");
 
-        when(reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo)).thenReturn(reporteFalso);
+        // 🛠️ CORRECCIÓN 1: Ahora recibe 5 argumentos
+        when(reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo, rol, sucursalId))
+                .thenReturn(reporteFalso);
         when(pdfService.generarPdfDeCumplimiento(reporteFalso)).thenReturn(pdfFalso);
 
         // Act & Assert
@@ -90,12 +104,15 @@ class ReporteControllerTest {
                         .param("kpiId", kpiId.toString())
                         .param("sucursalId", sucursalId.toString())
                         .param("periodo", periodo)
-                        .param("correoDestino", correo))
+                        .param("correoDestino", correo)
+                        // 👈 Inyectamos las cabeceras
+                        .header("X-User-Role", rol)
+                        .header("X-Sucursal-Id", sucursalId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Reporte enviado con éxito a " + correo));
+                // 🛠️ CORRECCIÓN 3: Ajustamos el texto esperado para que coincida exactamente con el Controller
+                .andExpect(content().string("Reporte enviado exitosamente al correo: " + correo));
 
-        // Verificamos orquestación
-        verify(reporteService, times(1)).guardarEnHistorial(any(), anyString(), anyString(), anyDouble(), anyString(), any());
+        // 🛠️ CORRECCIÓN 4: Eliminamos el 'verify' de guardarEnHistorial porque el nuevo controlador ya no lo usa aquí.
         verify(emailService, times(1)).enviarReporteConAdjunto(correo, pdfFalso, periodo);
     }
 }

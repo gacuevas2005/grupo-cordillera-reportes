@@ -14,18 +14,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ReporteServiceTest {
 
-    // 1. Simulamos todos los clientes externos
     @Mock
     private VentaClient ventaClient;
     @Mock
@@ -37,58 +36,62 @@ class ReporteServiceTest {
     @Mock
     private ReporteHistorialRepository historialRepository;
 
-    // 2. Inyectamos los simulacros en el servicio real
     @InjectMocks
     private ReporteService reporteService;
 
     @Test
     void debeGenerarReporteDeCumplimientoExitosamente() {
-        // --- ARRANGE (Preparar Escenario) ---
+        // --- ARRANGE ---
         Long kpiId = 1L;
         Long sucursalId = 1L;
         String periodo = "MENSUAL";
+        String rol = "ADMIN";
 
-        // Simulamos la respuesta del KPI (Meta: 1,000,000)
+        // Mock KPI Definición
         KpiDefinicionDto kpi = new KpiDefinicionDto();
         kpi.setNombre("Meta de Ventas");
         kpi.setValorObjetivo(1000000.0);
+        kpi.setTipoCalculo("SUMAR_MONTO");
         when(kpiClient.obtenerDefinicion(kpiId)).thenReturn(kpi);
 
-        // Simulamos la respuesta de Productos
+        // ✅ NUEVO: Mock de las métricas obtenidas directamente del ms-kpi
+        KpiMetricaDto metricaReal = new KpiMetricaDto();
+        metricaReal.setSucursalId(1L);
+        metricaReal.setValorActual(800000.0);
+        when(kpiClient.obtenerMetricasPorDefinicion(eq(kpiId), eq(rol), eq(sucursalId)))
+                .thenReturn(List.of(metricaReal));
+
+        // Mock de Productos y Sucursales
         ProductoResponseDto producto = new ProductoResponseDto();
         producto.setId(10L);
         producto.setNombre("Laptop Pro");
         when(productoClient.listarTodosLosProductos()).thenReturn(List.of(producto));
 
-        // Simulamos la respuesta de Sucursales
         SucursalResponseDto sucursal = new SucursalResponseDto();
         sucursal.setId(1L);
         sucursal.setNombre("Cordillera Central");
         when(sucursalClient.listarTodasLasSucursales()).thenReturn(List.of(sucursal));
 
-        // Simulamos una Venta reciente (para que pase el filtro de fecha)
+        // Mock de Ventas para el Detalle (Gráficos y Tablas)
         VentaResponseDto venta = new VentaResponseDto();
         venta.setProductoId(10L);
         venta.setSucursalId(1L);
         venta.setCantidad(2);
         venta.setMontoTotal(800000.0);
-        venta.setFechaVenta(LocalDateTime.now().minusDays(5)); // Hace 5 días, entra en MENSUAL
+        venta.setFechaVenta(LocalDateTime.now().minusDays(5));
         when(ventaClient.listarTodasLasVentas()).thenReturn(List.of(venta));
 
-        // --- ACT (Actuar) ---
-        ReporteCumplimientoDto resultado = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo);
+        // --- ACT (Ahora incluye los 5 argumentos) ---
+        ReporteCumplimientoDto resultado = reporteService.generarReporteDeCumplimiento(kpiId, sucursalId, periodo, rol, sucursalId);
 
-        // --- ASSERT (Comprobar) ---
+        // --- ASSERT ---
         assertNotNull(resultado);
         assertEquals("Meta de Ventas", resultado.getNombreKpi());
         assertEquals(1000000.0, resultado.getMetaEstablecida());
-        assertEquals(800000.0, resultado.getVentasReales());
-
-        // Matemáticas: (800k / 1M) * 100 = 80.0% -> Debería ser estado "EN RIESGO" según tu lógica
+        assertEquals(800000.0, resultado.getVentasReales()); // Sigue dando 800k gracias al nuevo Mock
         assertEquals(80.0, resultado.getPorcentajeCumplimiento());
         assertEquals("EN RIESGO", resultado.getEstado());
 
-        // Verificamos que los agrupamientos funcionen
         assertEquals(1, resultado.getDetalleVentas().size());
         assertTrue(resultado.getTotalesPorSucursal().containsKey("Cordillera Central"));
         assertTrue(resultado.getTopProductos().containsKey("Laptop Pro"));
@@ -98,32 +101,33 @@ class ReporteServiceTest {
     void debeGuardarEnHistorialExitosamente() {
         // Arrange
         Long kpiId = 1L;
+        Long sucursalId = 1L; // ✅ Argumento faltante
         String nombre = "Meta Ventas";
         String periodo = "MENSUAL";
         Double ventas = 5000.0;
         String estado = "CRÍTICO";
         byte[] pdf = new byte[]{1, 2, 3};
 
-        // Act
-        reporteService.guardarEnHistorial(kpiId, nombre, periodo, ventas, estado, pdf);
+        // Act (Ahora incluye los 7 argumentos)
+        reporteService.guardarEnHistorial(kpiId, sucursalId, nombre, periodo, ventas, estado, pdf);
 
         // Assert
-        // Verificamos que el repositorio intentó guardar una entidad exactamente 1 vez
         verify(historialRepository, times(1)).save(any(ReporteHistorial.class));
     }
 
     @Test
     void debeListarHistorialMapeadoCorrectamente() {
         // Arrange
-        ReporteHistorial historialReal = new ReporteHistorial();
-        historialReal.setId(99L);
-        historialReal.setNombreKpi("Ventas Anuales");
-        historialReal.setVentasReales(10000.0);
+        // Creamos un Mock del DTO de Resumen que ahora devuelve el Repositorio
+        HistorialResumenDto mockResumen = mock(HistorialResumenDto.class);
+        when(mockResumen.getId()).thenReturn(99L);
+        when(mockResumen.getNombreKpi()).thenReturn("Ventas Anuales");
 
-        when(historialRepository.findAll()).thenReturn(List.of(historialReal));
+        // Simulamos la nueva query del repositorio
+        when(historialRepository.obtenerTodosLosResumenes()).thenReturn(List.of(mockResumen));
 
-        // Act
-        List<HistorialResumenDto> resultado = reporteService.listarHistorial();
+        // Act (Llamada al método con su nuevo nombre y argumentos de seguridad)
+        List<HistorialResumenDto> resultado = reporteService.listarHistorialPorSeguridad("ADMIN", 1L);
 
         // Assert
         assertNotNull(resultado);
@@ -136,7 +140,7 @@ class ReporteServiceTest {
     void debeDescargarPdfHistoricoSiExiste() {
         // Arrange
         ReporteHistorial historial = new ReporteHistorial();
-        historial.setArchivoPdf(new byte[]{0x25, 0x50, 0x44, 0x46}); // Simula un PDF
+        historial.setArchivoPdf(new byte[]{0x25, 0x50, 0x44, 0x46});
 
         when(historialRepository.findById(5L)).thenReturn(Optional.of(historial));
 
@@ -159,6 +163,7 @@ class ReporteServiceTest {
             reporteService.descargarPdfHistorico(999L);
         });
 
-        assertEquals("Reporte histórico no encontrado", excepcion.getMessage());
+        // ✅ Se actualizó el texto para que coincida con la nueva versión del código real
+        assertEquals("Reporte no encontrado con ID: 999", excepcion.getMessage());
     }
 }
